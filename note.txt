@@ -1,2 +1,15 @@
 Git error:
 https://sentry.io/answers/git-src-refspec-master-does-not-match-any-error-message/
+
+
+Always remember to run this command to add files after you modify files in this directory
+git add .
+make sure everything is added
+
+You can always check your status by command git status
+
+On git new repo page:
+…or push an existing repository from the command line
+git remote add origin https://github.com/CaitlynJiang/multi_thread_proxy_server.git
+git branch -M main
+git push -u origin main
