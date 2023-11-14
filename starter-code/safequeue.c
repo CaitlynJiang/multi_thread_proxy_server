@@ -1,25 +1,32 @@
 #include <stdlib.h>
 #include <pthread.h>
 #include <string.h>
+#include <ctype.h>
 
 #include "safequeue.h"
 #include "proxyserver.h"
 
 // initialize pq
-void pq_init(struct safequeue *pq, int capacity) {
-    pq->head = malloc(sizeof(struct node) * capacity);
-    if (pq->head == NULL) { //TODO: ????? is pq->head null here???
+Safequeue *create_queue(int capacity) {
+    Safequeue *pq = malloc(sizeof(Safequeue));
+    if (pq->reqs == NULL) { 
         perror("Failed to malloc pq.\n");
+    }
+    pq->reqs = malloc(sizeof(Node) * capacity);
+    if (pq->reqs == NULL) { 
+        perror("Failed to malloc nodes.\n");
     }
 
     pq->capacity = capacity;
     pq->size = 0;
     pthread_mutex_init(&pq->lock, NULL);
+    pthread_cond_init(&pq->cond, NULL);
+    return pq;
 }
 
 // helper: get priority, return -1 if incorrect fd
-int get_priority(struct node* req) {
-    const char *slash = strrchr((req->data)->path, '/');
+int get_priority(struct http_request* req) {
+    const char *slash = strrchr(req->path, '/');
     if (slash == NULL) {
         return -1;
     }
@@ -35,46 +42,44 @@ int get_priority(struct node* req) {
 };
 
 
-// add node: 0 for success, 1 for pq full error
-// TODO: add error when get_priority returns -1
-int pq_add(struct safequeue *pq, struct node *req) {
+// add node: 0 for success, -1 for pq full error
+int add_work(Safequeue *pq, struct http_request *req) {
     pthread_mutex_lock(&pq->lock);
 
-    pq->size++;
-    if (pq->size > pq->capacity) {
+    if (pq->size == pq->capacity) {
         pthread_mutex_unlock(&pq->lock);
-        return 1;
+        return -1;
     }
 
+    // initialize node
+    Node temp;
+    temp.data = req;
+    temp.priority =  get_priority(req);
+
+    pq->reqs[pq->size] = temp;
+    int ind = pq->size;
+    pq->size++;
+
     // no head
-    if (pq->size == 0) {
-        pq->head = req;
-        pq->head->next = NULL;
+    if (ind == 0) {
+        pq->reqs[ind] = temp;
 
         pthread_mutex_unlock(&pq->lock);
         return 0;
     }
 
-    struct node* cur = pq->head;
+    // insert according to priority
+    while (ind > 0) {
+        int parentIndex = (ind - 1) / 2;
+        if (pq->reqs[ind].priority > pq->reqs[parentIndex].priority) {
+            // swap with parent
+            Node temp = pq->reqs[ind];
+            pq->reqs[ind] = pq->reqs[parentIndex];
+            pq->reqs[parentIndex] = temp;
 
-    // higher priority than head
-    int cur_priority = get_priority(cur);
-    int new_priority = get_priority(req);
-    if (new_priority > cur_priority) {
-        pq->head = req;
-        req->next = cur;
-    } else {
-        while (cur->next != NULL) {
-            cur_priority = get_priority(cur->next);
-
-            if (new_priority > cur_priority) {
-                struct node* temp = cur;
-                cur->next = req;
-                req->next = temp;
-                break;
-            }
-
-            cur = cur->next;
+            ind = parentIndex; // Move up the heap
+        } else {
+            break; // The heap property is satisfied
         }
     }
 
@@ -82,32 +87,66 @@ int pq_add(struct safequeue *pq, struct node *req) {
     return 0;
 }
 
-// poll
-struct node *pq_poll(struct safequeue *pq) {
-    pthread_mutex_lock(&pq->lock);
+// reorder
+void reorder(Safequeue *pq, int ind) {
 
-    if (pq->size == 0) {
-        pthread_mutex_unlock(&pq->lock);
-        return NULL;
+    int largestInd = ind;
+    int leftInd = 2 * ind + 1;  
+    int rightInd = 2 * ind + 2; 
+
+    if (leftInd < pq->size && pq->reqs[leftInd].priority > pq->reqs[largestInd].priority) {
+        largestInd = leftInd;
     }
 
-    struct node *req = pq->head;
+    if (rightInd < pq->size && pq->reqs[rightInd].priority > pq->reqs[largestInd].priority) {
+        largestInd = rightInd;
+    }
 
-    pq->head = pq->head->next;
+    // swap and continue if root is not largest
+    if (largestInd != ind) {
+        Node temp = pq->reqs[ind];
+        pq->reqs[ind] = pq->reqs[largestInd];
+        pq->reqs[largestInd] = temp;
+
+        reorder(pq, largestInd);
+    }
+}
+
+// poll
+Node *get_work(Safequeue *pq) {
+    pthread_mutex_lock(&pq->lock);
+
+    while (pq->size == 0) {
+       pthread_cond_wait(&pq->cond, &pq->lock);
+    }
+
+    // remove highest priority job
+    Node *req = &pq->reqs[0];
+
+    pq->reqs[0] = pq->reqs[pq->size - 1];
     pq->size--;
+
+    reorder(pq, 0);
 
     pthread_mutex_unlock(&pq->lock);
     return req;
 }
 
-// free
-void pq_free(struct safequeue *pq) {
-    free(pq->head);
-    pthread_mutex_destroy(&pq->lock);
+Node *get_work_nonblocking(Safequeue *pq) {
+    pthread_mutex_lock(&pq->lock);
+    if (pq->size == 0) {
+        pthread_mutex_unlock(&pq->lock);
+        return NULL; // no available job
+    }
+
+    // remove highest priority job
+    Node *req = &pq->reqs[0];
+
+    pq->reqs[0] = pq->reqs[pq->size - 1];
+    pq->size--;
+
+    reorder(pq, 0);
+
+    pthread_mutex_unlock(&pq->lock);
+    return req;
 }
-
-
-// TODO: 
-// when the pq is full, send wait to listener, wake if has vacancy
-// when the pq is empty, send wait to response, wake if has content?
-// OR just send errors??

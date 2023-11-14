@@ -1,29 +1,27 @@
 #include <stdlib.h>
 #include <pthread.h>
+#include "proxyserver.h"
 
-typedef struct node
+typedef struct Node
 {
     struct http_request *data;
-
     int priority;
-
-    struct node* next;
-};
+} Node;
 
 // priority determined by the directory name (file 10 > file 1)
-typedef struct safequeue
+typedef struct Safequeue
 {
-    struct node* head;
+    struct Node* reqs;
 
     int capacity; // max size of queue specified using the -q flag
-
     int size;
 
     pthread_mutex_t lock;
-};
+    pthread_cond_t cond; 
+} Safequeue;
 
-void pq_init(struct safequeue *pq, int capacity);
-int get_priority(struct node* req);
-int pq_add(struct safequeue *pq, struct node *req);
-struct node *pq_poll(struct safequeue *pq);
-void pq_free(struct safequeue *pq);
+Safequeue *create_queue(int capacity);
+int get_priority(struct http_request* req);
+int add_work(Safequeue *pq, struct http_request *req);
+Node *get_work(Safequeue *pq);
+Node *get_work_nonblocking(Safequeue *pq);
