@@ -201,7 +201,7 @@ void print_settings() {
     for (int i = 0; i < num_listener; i++)
         printf(" %d", listener_ports[i]);
     printf(" ]\n");
-    printf("\t%d workers\n", num_listener);
+    printf("\t%d workers\n", num_workers);
     printf("\tfileserver ipaddr %s port %d\n", fileserver_ipaddr, fileserver_port);
     printf("\tmax queue size  %d\n", max_queue_size);
     printf("\t  ----\t----\t\n");
