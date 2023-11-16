@@ -2,6 +2,10 @@
 #include <pthread.h>
 #include "proxyserver.h"
 
+
+#ifndef SAFEQUEUE_H
+#define SAFEQUEUE_H
+
 typedef struct Node
 {
     struct http_request *data;
@@ -25,3 +29,5 @@ int get_priority(struct http_request* req);
 int add_work(Safequeue *pq, struct http_request *req);
 Node *get_work(Safequeue *pq);
 Node *get_work_nonblocking(Safequeue *pq);
+
+#endif

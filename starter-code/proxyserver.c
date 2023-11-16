@@ -15,7 +15,7 @@
 #include <unistd.h>
 
 #include "proxyserver.h"
-
+#include "safequeue.h"
 
 /*
  * Constants
@@ -108,27 +108,69 @@ void serve_request(int client_fd) {
 int server_fd;
 
 // attempt for step 1:
-/*
+
 typedef struct {
     Safequeue *pq;
     int ind;
     int server_fd;
 } ThreadParams;
 
+struct http_request *parse_http_request(int client_fd) {
+    char buffer[1024];
+    ssize_t bytes_read = recv(client_fd, buffer, sizeof(buffer) - 1, 0);
+    if (bytes_read <= 0) {
+        return NULL; // Error in receiving or connection closed
+    }
+
+    buffer[bytes_read] = '\0'; // Null-terminate the string
+
+    struct http_request *request = malloc(sizeof(struct http_request));
+    if (request == NULL) {
+        return NULL; // Memory allocation failed
+    }
+
+    // Initialize fields to NULL
+    request->method = NULL;
+    request->path = NULL;
+    request->delay = NULL;
+
+    // Parse the request (simple parsing for demonstration)
+    char *method = strtok(buffer, " ");
+    char *path = strtok(NULL, " ");
+    // You can add more parsing logic here as needed
+
+    // Copy parsed values into the struct
+    if (method) request->method = strdup(method);
+    if (path) request->path = strdup(path);
+
+    // Extract delay from path if present
+    // Example: /path?delay=10
+    char *delay_param = strstr(request->path, "delay=");
+    if (delay_param) {
+        delay_param += 6; // Skip past 'delay='
+        request->delay = strdup(delay_param);
+        // Modify the path to remove the delay parameter
+        char *question_mark = strchr(request->path, '?');
+        if (question_mark) *question_mark = '\0'; // Truncate path at '?'
+    }
+
+    return request;
+}
+
 // helper function: handle requst in one listening port
-void serve_thread(void *arg) {
+void *serve_thread(void *arg) {
     ThreadParams *thread = (ThreadParams *)arg;
 
         // create a socket to listen
-        *thread->server_fd = socket(PF_INET, SOCK_STREAM, 0);
-        if (*thread->server_fd == -1) {
+        thread->server_fd = socket(PF_INET, SOCK_STREAM, 0);
+        if (thread->server_fd == -1) {
             perror("Failed to create a new socket");
             exit(errno);
         }
 
         // manipulate options for the socket
         int socket_option = 1;
-        if (setsockopt(*thread->server_fd, SOL_SOCKET, SO_REUSEADDR, &socket_option,
+        if (setsockopt(thread->server_fd, SOL_SOCKET, SO_REUSEADDR, &socket_option,
                 sizeof(socket_option)) == -1) {
             perror("Failed to set socket options");
             exit(errno);
@@ -144,14 +186,14 @@ void serve_thread(void *arg) {
         proxy_address.sin_port = htons(proxy_port); // listening port
 
         // bind the socket to the address and port number specified in
-        if (bind(*thread->server_fd, (struct sockaddr *)&proxy_address,
+        if (bind(thread->server_fd, (struct sockaddr *)&proxy_address,
                 sizeof(proxy_address)) == -1) {
             perror("Failed to bind on socket");
             exit(errno);
         }
 
         // starts waiting for the client to request a connection
-        if (listen(*thread->server_fd, 1024) == -1) {
+        if (listen(thread->server_fd, 1024) == -1) {
             perror("Failed to listen on socket");
             exit(errno);
         }
@@ -163,7 +205,7 @@ void serve_thread(void *arg) {
         size_t client_address_length = sizeof(client_address);
         int client_fd;
         while (1) {
-            client_fd = accept(*thread->server_fd,
+            client_fd = accept(thread->server_fd,
                             (struct sockaddr *)&client_address,
                             (socklen_t *)&client_address_length);
             if (client_fd < 0) {
@@ -176,9 +218,8 @@ void serve_thread(void *arg) {
                 client_address.sin_port);
             
             // Process the request
-            http_request *request = parse_http_request(client_fd);
+            struct http_request *request = parse_http_request(client_fd);
             if (request != NULL) {
-                int priority = determine_priority(request); // Implement this based on your logic
                 if (add_work(thread->pq, request) == -1) {
                     send_error_response(client_fd, QUEUE_FULL, "Queue Full");
                 }
@@ -196,8 +237,8 @@ void serve_thread(void *arg) {
             close(client_fd);
         }
 
-    shutdown(*thread->server_fd, SHUT_RDWR);
-    close(*thread->server_fd);
+    shutdown(thread->server_fd, SHUT_RDWR);
+    close(thread->server_fd);
     return NULL;
 }
 
@@ -208,14 +249,15 @@ void serve_forever(int *server_fd) {
 
     for (int i = 0; i < num_listener; i++) {
         ThreadParams *thread = malloc(sizeof(ThreadParams)); 
-        thread[i]->pq = pq;
-        thread[i]->ind = i; 
-        thread[i]->server_fd = socket(PF_INET, SOCK_STREAM, 0);
+        thread->pq = pq;
+        thread->ind = i; 
+        thread->server_fd = socket(PF_INET, SOCK_STREAM, 0);
 
-        if (pthread_create(&threads[i], NULL, listener_thread, thread) != 0) {
+        if (pthread_create(&threads[i], NULL, serve_thread, thread) != 0) {
             perror("Failed to create listener thread");
             free(thread); 
             continue; 
+        }
 
         free(thread);
     }
@@ -227,13 +269,14 @@ void serve_forever(int *server_fd) {
 
     // clean up priority queue, implement destroy_pq?
 }
-*/
+
 
 /*
  * opens a TCP stream socket on all interfaces with port number PORTNO. Saves
  * the fd number of the server socket in *socket_number. For each accepted
  * connection, calls request_handler with the accepted fd number.
  */
+ /*
 void serve_forever(int *server_fd) {
 
     // create a socket to listen
@@ -301,6 +344,7 @@ void serve_forever(int *server_fd) {
     shutdown(*server_fd, SHUT_RDWR);
     close(*server_fd);
 }
+*/
 
 /*
  * Default settings for in the global configuration variables
@@ -391,4 +435,129 @@ int main(int argc, char **argv) {
     serve_forever(&server_fd);
 
     return EXIT_SUCCESS;
+}
+
+
+
+// additional function definitions
+
+void http_start_response(int fd, int status_code) {
+    dprintf(fd, "HTTP/1.0 %d %s\r\n", status_code,
+            http_get_response_message(status_code));
+}
+
+void http_send_header(int fd, char *key, char *value) {
+    dprintf(fd, "%s: %s\r\n", key, value);
+}
+
+void http_end_headers(int fd) {
+    dprintf(fd, "\r\n");
+}
+
+void http_send_string(int fd, char *data) {
+    http_send_data(fd, data, strlen(data));
+}
+
+int http_send_data(int fd, char *data, size_t size) {
+    ssize_t bytes_sent;
+    while (size > 0) {
+        bytes_sent = write(fd, data, size);
+        if (bytes_sent < 0)
+            return -1; // Indicates a failure
+        size -= bytes_sent;
+        data += bytes_sent;
+    }
+    return 0; // Indicate success
+}
+
+void http_fatal_error(char *message) {
+    fprintf(stderr, "%s\n", message);
+    exit(ENOBUFS);
+}
+
+struct http_request *http_request_parse(int fd) {
+    struct http_request *request = malloc(sizeof(struct http_request));
+    if (!request) http_fatal_error("Malloc failed");
+
+    char *read_buffer = malloc(LIBHTTP_REQUEST_MAX_SIZE + 1);
+    if (!read_buffer) http_fatal_error("Malloc failed");
+
+    int bytes_read = read(fd, read_buffer, LIBHTTP_REQUEST_MAX_SIZE);
+    read_buffer[bytes_read] = '\0'; /* Always null-terminate. */
+
+    char *read_start, *read_end;
+    size_t read_size;
+
+    do {
+        /* Read in the HTTP method: "[A-Z]*" */
+        read_start = read_end = read_buffer;
+        while (*read_end >= 'A' && *read_end <= 'Z') {
+            printf("%c", *read_end);
+            read_end++;
+        }
+        read_size = read_end - read_start;
+        if (read_size == 0) break;
+        request->method = malloc(read_size + 1);
+        memcpy(request->method, read_start, read_size);
+        request->method[read_size] = '\0';
+        printf("parsed method %s\n", request->method);
+
+        /* Read in a space character. */
+        read_start = read_end;
+        if (*read_end != ' ') break;
+        read_end++;
+
+        /* Read in the path: "[^ \n]*" */
+        read_start = read_end;
+        while (*read_end != '\0' && *read_end != ' ' && *read_end != '\n')
+            read_end++;
+        read_size = read_end - read_start;
+        if (read_size == 0) break;
+        request->path = malloc(read_size + 1);
+        memcpy(request->path, read_start, read_size);
+        request->path[read_size] = '\0';
+        printf("parsed path %s\n", request->path);
+
+        /* Read in HTTP version and rest of request line: ".*" */
+        read_start = read_end;
+        while (*read_end != '\0' && *read_end != '\n')
+            read_end++;
+        if (*read_end != '\n') break;
+        read_end++;
+
+        free(read_buffer);
+        return request;
+    } while (0);
+
+    /* An error occurred. */
+    free(request);
+    free(read_buffer);
+    return NULL;
+}
+
+char *http_get_response_message(int status_code) {
+    switch (status_code) {
+    case 100:
+        return "Continue";
+    case 200:
+        return "OK";
+    case 301:
+        return "Moved Permanently";
+    case 302:
+        return "Found";
+    case 304:
+        return "Not Modified";
+    case 400:
+        return "Bad Request";
+    case 401:
+        return "Unauthorized";
+    case 403:
+        return "Forbidden";
+    case 404:
+        return "Not Found";
+    case 405:
+        return "Method Not Allowed";
+    default:
+        return "Internal Server Error";
+    }
 }

@@ -9,12 +9,16 @@
 // initialize pq
 Safequeue *create_queue(int capacity) {
     Safequeue *pq = malloc(sizeof(Safequeue));
-    if (pq->reqs == NULL) { 
+    if (pq == NULL) { 
         perror("Failed to malloc pq.\n");
+        return NULL; // Early return if allocation fails
     }
+
     pq->reqs = malloc(sizeof(Node) * capacity);
     if (pq->reqs == NULL) { 
         perror("Failed to malloc nodes.\n");
+        free(pq); // Free the previously allocated pq before returning
+        return NULL;
     }
 
     pq->capacity = capacity;
@@ -23,6 +27,7 @@ Safequeue *create_queue(int capacity) {
     pthread_cond_init(&pq->cond, NULL);
     return pq;
 }
+
 
 // helper: get priority, return -1 if incorrect fd
 int get_priority(struct http_request* req) {
