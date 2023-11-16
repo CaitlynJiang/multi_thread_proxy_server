@@ -106,6 +106,129 @@ void serve_request(int client_fd) {
 
 
 int server_fd;
+
+// attempt for step 1:
+/*
+typedef struct {
+    Safequeue *pq;
+    int ind;
+    int server_fd;
+} ThreadParams;
+
+// helper function: handle requst in one listening port
+void serve_thread(void *arg) {
+    ThreadParams *thread = (ThreadParams *)arg;
+
+        // create a socket to listen
+        *thread->server_fd = socket(PF_INET, SOCK_STREAM, 0);
+        if (*thread->server_fd == -1) {
+            perror("Failed to create a new socket");
+            exit(errno);
+        }
+
+        // manipulate options for the socket
+        int socket_option = 1;
+        if (setsockopt(*thread->server_fd, SOL_SOCKET, SO_REUSEADDR, &socket_option,
+                sizeof(socket_option)) == -1) {
+            perror("Failed to set socket options");
+            exit(errno);
+        } 
+
+        // each poxy_port listens to one tread
+        int proxy_port = listener_ports[thread->ind];
+        // create the full address of this proxyserver
+        struct sockaddr_in proxy_address;
+        memset(&proxy_address, 0, sizeof(proxy_address));
+        proxy_address.sin_family = AF_INET;
+        proxy_address.sin_addr.s_addr = INADDR_ANY;
+        proxy_address.sin_port = htons(proxy_port); // listening port
+
+        // bind the socket to the address and port number specified in
+        if (bind(*thread->server_fd, (struct sockaddr *)&proxy_address,
+                sizeof(proxy_address)) == -1) {
+            perror("Failed to bind on socket");
+            exit(errno);
+        }
+
+        // starts waiting for the client to request a connection
+        if (listen(*thread->server_fd, 1024) == -1) {
+            perror("Failed to listen on socket");
+            exit(errno);
+        }
+
+        printf("Listening on port %d...\n", proxy_port);
+
+        // waiting for clients to connect
+        struct sockaddr_in client_address;
+        size_t client_address_length = sizeof(client_address);
+        int client_fd;
+        while (1) {
+            client_fd = accept(*thread->server_fd,
+                            (struct sockaddr *)&client_address,
+                            (socklen_t *)&client_address_length);
+            if (client_fd < 0) {
+                perror("Error accepting socket");
+                continue;
+            }
+
+            printf("Accepted connection from %s on port %d\n",
+                inet_ntoa(client_address.sin_addr),
+                client_address.sin_port);
+            
+            // Process the request
+            http_request *request = parse_http_request(client_fd);
+            if (request != NULL) {
+                int priority = determine_priority(request); // Implement this based on your logic
+                if (add_work(thread->pq, request) == -1) {
+                    send_error_response(client_fd, QUEUE_FULL, "Queue Full");
+                }
+            } else {
+                // Handle parsing error or invalid request
+                send_error_response(client_fd, BAD_REQUEST, "Bad Request");
+            }
+
+            serve_request(client_fd);
+
+            // TODO: implement GETJOB request - handled by proxy server directly
+
+            // close the connection to the client
+            shutdown(client_fd, SHUT_WR);
+            close(client_fd);
+        }
+
+    shutdown(*thread->server_fd, SHUT_RDWR);
+    close(*thread->server_fd);
+    return NULL;
+}
+
+void serve_forever(int *server_fd) {
+
+    Safequeue *pq = create_queue(max_queue_size);
+    pthread_t threads[num_listener];
+
+    for (int i = 0; i < num_listener; i++) {
+        ThreadParams *thread = malloc(sizeof(ThreadParams)); 
+        thread[i]->pq = pq;
+        thread[i]->ind = i; 
+        thread[i]->server_fd = socket(PF_INET, SOCK_STREAM, 0);
+
+        if (pthread_create(&threads[i], NULL, listener_thread, thread) != 0) {
+            perror("Failed to create listener thread");
+            free(thread); 
+            continue; 
+
+        free(thread);
+    }
+
+    // wait for threads to finish
+    // for (int i = 0; i < num_listener; i++) {
+    //     pthread_join(threads[i], NULL);
+    // }
+
+    // clean up priority queue, implement destroy_pq?
+}
+*/
+
 /*
  * opens a TCP stream socket on all interfaces with port number PORTNO. Saves
  * the fd number of the server socket in *socket_number. For each accepted
