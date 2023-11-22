@@ -228,7 +228,7 @@ int main(int argc, char **argv) {
     signal(SIGINT, signal_callback_handler);
 
     /* Default settings */
-    default_settings();    
+    default_settings();
 
     int i;
     for (i = 1; i < argc; i++) {
@@ -253,17 +253,6 @@ int main(int argc, char **argv) {
         }
     }
     print_settings();
-
-    // TODO: enable multi-threading
-    // pthread_t threads[num_listener];
-    // for (int i = 0; i < num_listener; i++) {
-    //     pthread_create(&threads[i], NULL, serve_forever, (void *)&listener_ports[i]);
-    // }
-
-    // // Join threads or handle them appropriately
-    // for (int i = 0; i < num_listener; i++) {
-    //     pthread_join(threads[i], NULL);
-    // }
 
     serve_forever(&server_fd);
 

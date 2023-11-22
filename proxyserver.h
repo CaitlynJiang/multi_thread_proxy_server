@@ -1,5 +1,3 @@
-#include <stdio.h>
-
 #ifndef PROXYSERVER_H
 #define PROXYSERVER_H
 
@@ -96,7 +94,8 @@ struct http_request *http_request_parse(int fd) {
     char *read_buffer = malloc(LIBHTTP_REQUEST_MAX_SIZE + 1);
     if (!read_buffer) http_fatal_error("Malloc failed");
 
-    int bytes_read = read(fd, read_buffer, LIBHTTP_REQUEST_MAX_SIZE);
+    //int bytes_read = read(fd, read_buffer, LIBHTTP_REQUEST_MAX_SIZE);  // will consume data, needs tweaking
+    int bytes_read = recv(fd, read_buffer, LIBHTTP_REQUEST_MAX_SIZE, MSG_PEEK);
     read_buffer[bytes_read] = '\0'; /* Always null-terminate. */
 
     char *read_start, *read_end;
@@ -174,6 +173,72 @@ char *http_get_response_message(int status_code) {
     default:
         return "Internal Server Error";
     }
+}
+
+struct parseResults {
+    int delay, priority;
+    char *path;
+};
+ 
+typedef struct parseResults Struct;
+
+Struct parseRequest(int fd) {     // test modify version to return a struct
+    Struct s;
+    char *read_buffer = malloc(LIBHTTP_REQUEST_MAX_SIZE + 1);
+    if (!read_buffer) http_fatal_error("Malloc failed");
+
+    //int bytes_read = read(fd, read_buffer, LIBHTTP_REQUEST_MAX_SIZE);   // will consume data, needs tweaking
+    int bytes_read = recv(fd, read_buffer, LIBHTTP_REQUEST_MAX_SIZE, MSG_PEEK); 
+    read_buffer[bytes_read] = '\0'; /* Always null-terminate. */
+    printf("read buffer %s\n\n", read_buffer);
+
+    s.delay = -1;
+    s.priority = -1;
+    s.path = NULL;
+
+    int is_first = 1;
+    size_t size;
+
+    char *token = strtok(read_buffer, "\r\n");
+    while (token != NULL) {
+        size = strlen(token);
+        if (is_first) {
+            is_first = 0;
+            // get path
+            char *s1 = strstr(token, " ");
+            char *s2 = strstr(s1 + 1, " ");
+            size = s2 - s1 - 1;
+            s.path = strndup(s1 + 1, size);
+
+            if (strcmp(GETJOBCMD, s.path) == 0) {  //detect "/GetJob"
+                break;
+            } else {
+                // get priority
+                s1 = strstr(s.path, "/");
+                s2 = strstr(s1 + 1, "/");
+                size = s2 - s1 - 1;
+                char *p = strndup(s1 + 1, size);
+                s.priority = atoi(p);
+            }
+        } else {
+            char *value = strstr(token, ":");
+            if (value) {
+                size = value - token - 1;  // -1 for space
+                if (strncmp("Delay", token, size) == 0) {
+                    s.delay = atoi(value + 2);  // skip `: `
+                }
+            }
+        }
+        token = strtok(NULL, "\r\n");
+    }
+
+    printf("\n\tParsed HTTP request:\n");
+    printf("\tPath: '%s'\n", s.path);
+    printf("\tPriority: '%d'\n", s.priority);
+    printf("\tDelay: '%d'\n\n", s.delay);
+
+    free(read_buffer);
+    return s;
 }
 
 

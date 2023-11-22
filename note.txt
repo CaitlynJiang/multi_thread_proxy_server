@@ -13,3 +13,10 @@ On git new repo page:
 git remote add origin https://github.com/CaitlynJiang/multi_thread_proxy_server.git
 git branch -M main
 git push -u origin main
+
+file descriptor & socket:
+https://stackoverflow.com/questions/13378035/socket-and-file-descriptors
+
+Test:
+can run at dir: /home/anlan/private/cs537/testP6/p6
+~cs537-1/tests/P6/runtests
